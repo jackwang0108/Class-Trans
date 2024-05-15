@@ -18,6 +18,8 @@ from .model.pspnet import get_model
 from .util import get_model_dir, fast_intersection_and_union, setup_seed, resume_random_state, find_free_port, setup, \
     cleanup, get_cfg
 
+from .dataset.dataset import MultiClassValData
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Testing')
@@ -30,6 +32,7 @@ def main_worker(rank: int, world_size: int, args: argparse.Namespace) -> None:
     setup_seed(args.manual_seed)
 
     # ========== Data  ==========
+    # 新类数据集, 用于小样本学习能力测试
     val_loader = get_val_loader(args)
 
     # ========== Model  ==========
@@ -54,7 +57,7 @@ def main_worker(rank: int, world_size: int, args: argparse.Namespace) -> None:
     cleanup()
 
 
-def validate(args: argparse.Namespace, val_loader: torch.utils.data.DataLoader, model: DDP) -> Tuple[torch.tensor, torch.tensor]:
+def validate(args: argparse.Namespace, val_loader: torch.utils.data.DataLoader, model: DDP) -> Tuple[torch.Tensor, torch.Tensor]:
     print('\n==> Start testing ({} runs)'.format(args.n_runs), flush=True)
     random_state = setup_seed(args.manual_seed, return_old_state=True)
     device = torch.device('cuda:{}'.format(dist.get_rank()))
@@ -64,28 +67,42 @@ def validate(args: argparse.Namespace, val_loader: torch.utils.data.DataLoader, 
     h = model.module.feature_res[0]
     w = model.module.feature_res[1]
 
-    nb_episodes = len(val_loader) if args.test_num == -1 else int(args.test_num / args.batch_size_val)
+    nb_episodes = len(val_loader) if args.test_num == - \
+        1 else int(args.test_num / args.batch_size_val)
     runtimes = torch.zeros(args.n_runs)
-    base_mIoU, novel_mIoU = [torch.zeros(args.n_runs, device=device) for _ in range(2)]
+    base_mIoU, novel_mIoU = [torch.zeros(
+        args.n_runs, device=device) for _ in range(2)]
 
     # ========== Perform the runs  ==========
+
+    # val_loader.dataset: MultiClassValData
     for run in range(args.n_runs):
         print('Run', run + 1, 'of', args.n_runs)
         # The order of classes in the following tensors is the same as the order of classifier (novels at last)
-        cls_intersection = torch.zeros(args.num_classes_tr + args.num_classes_val)
+
+        # args.num_classes_tr 和 args.num_classes_val 在 get_val_loader中设置
+        cls_intersection = torch.zeros(
+            args.num_classes_tr + args.num_classes_val)
         cls_union = torch.zeros(args.num_classes_tr + args.num_classes_val)
         cls_target = torch.zeros(args.num_classes_tr + args.num_classes_val)
 
         runtime = 0
         features_s, gt_s = None, None
+        # 获得support set图像的特征, 1-shot就只有1个支持图像, 5-shot有5个支持图像
         if not args.generate_new_support_set_for_each_task:
             with torch.no_grad():
-                spprt_imgs, s_label = val_loader.dataset.generate_support([], remove_them_from_query_data_list=True)
-                nb_episodes = len(val_loader) if args.test_num == -1 else nb_episodes  # Updates nb_episodes since some images were removed by generate_support
+                spprt_imgs, s_label = val_loader.dataset.generate_support(
+                    [], remove_them_from_query_data_list=True)
+                # Updates nb_episodes since some images were removed by generate_support
+                nb_episodes = len(
+                    val_loader) if args.test_num == -1 else nb_episodes
                 spprt_imgs = spprt_imgs.to(device, non_blocking=True)
                 s_label = s_label.to(device, non_blocking=True)
-                features_s = model.module.extract_features(spprt_imgs).detach().view((args.num_classes_val, args.shot, c, h, w))
-                gt_s = s_label.view((args.num_classes_val, args.shot, args.image_size, args.image_size))
+                # 支持图像的feature
+                features_s = model.module.extract_features(spprt_imgs).detach().view(
+                    (args.num_classes_val, args.shot, c, h, w))
+                gt_s = s_label.view(
+                    (args.num_classes_val, args.shot, args.image_size, args.image_size))
 
         for _ in tqdm(range(nb_episodes), leave=True):
             t0 = time.time()
@@ -99,24 +116,30 @@ def validate(args: argparse.Namespace, val_loader: torch.utils.data.DataLoader, 
 
                 qry_img = qry_img.to(device, non_blocking=True)
                 q_label = q_label.to(device, non_blocking=True)
-                features_q = model.module.extract_features(qry_img).detach().unsqueeze(1)
+                features_q = model.module.extract_features(
+                    qry_img).detach().unsqueeze(1)
                 valid_pixels_q = q_valid_pix.unsqueeze(1).to(device)
                 gt_q = q_label.unsqueeze(1)
 
                 query_image_path_list = list(img_path)
                 if args.generate_new_support_set_for_each_task:
-                    spprt_imgs, s_label = val_loader.dataset.generate_support(query_image_path_list)
+                    spprt_imgs, s_label = val_loader.dataset.generate_support(
+                        query_image_path_list)
                     spprt_imgs = spprt_imgs.to(device, non_blocking=True)
                     s_label = s_label.to(device, non_blocking=True)
-                    features_s = model.module.extract_features(spprt_imgs).detach().view((args.num_classes_val, args.shot, c, h, w))
-                    gt_s = s_label.view((args.num_classes_val, args.shot, args.image_size, args.image_size))
+                    features_s = model.module.extract_features(spprt_imgs).detach().view(
+                        (args.num_classes_val, args.shot, c, h, w))
+                    gt_s = s_label.view(
+                        (args.num_classes_val, args.shot, args.image_size, args.image_size))
 
             # =========== Initialize the classifier and run the method ===============
             base_weight = model.module.classifier.weight.detach().clone().T
             base_bias = model.module.classifier.bias.detach().clone()
-            classifier = Classifier(args, base_weight, base_bias, n_tasks=features_q.size(0))
+            classifier = Classifier(
+                args, base_weight, base_bias, n_tasks=features_q.size(0))
             classifier.init_prototypes(features_s, gt_s)
-            classifier.compute_pi(features_q, valid_pixels_q, gt_q)  # gt_q won't be used in optimization if pi estimation strategy is self or uniform
+            # gt_q won't be used in optimization if pi estimation strategy is self or uniform
+            classifier.compute_pi(features_q, valid_pixels_q, gt_q)
             classifier.optimize(features_s, features_q, gt_s, valid_pixels_q)
 
             runtime += time.time() - t0
@@ -125,8 +148,10 @@ def validate(args: argparse.Namespace, val_loader: torch.utils.data.DataLoader, 
             logits = classifier.get_logits(features_q).detach()
             probas = classifier.get_probas(logits)
 
-            intersection, union, target = fast_intersection_and_union(probas, gt_q)  # [batch_size_val, 1, num_classes]
-            intersection, union, target = intersection.squeeze(1).cpu(), union.squeeze(1).cpu(), target.squeeze(1).cpu()
+            intersection, union, target = fast_intersection_and_union(
+                probas, gt_q)  # [batch_size_val, 1, num_classes]
+            intersection, union, target = intersection.squeeze(
+                1).cpu(), union.squeeze(1).cpu(), target.squeeze(1).cpu()
             cls_intersection += intersection.sum(0)
             cls_union += union.sum(0)
             cls_target += target.sum(0)
@@ -144,8 +169,10 @@ def validate(args: argparse.Namespace, val_loader: torch.utils.data.DataLoader, 
                 sum_novel_IoU += IoU
                 novel_count += 1
 
-        avg_base_IoU, avg_novel_IoU = sum_base_IoU / base_count, sum_novel_IoU / novel_count
-        print('Mean base IoU: {:.4f}, Mean novel IoU: {:.4f}'.format(avg_base_IoU, avg_novel_IoU), flush=True)
+        avg_base_IoU, avg_novel_IoU = sum_base_IoU / \
+            base_count, sum_novel_IoU / novel_count
+        print('Mean base IoU: {:.4f}, Mean novel IoU: {:.4f}'.format(
+            avg_base_IoU, avg_novel_IoU), flush=True)
 
         base_mIoU[run], novel_mIoU[run] = avg_base_IoU, avg_novel_IoU
         runtimes[run] = runtime

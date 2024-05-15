@@ -25,7 +25,8 @@ class PPM(nn.Module):
         x_size = x.size()
         out = [x]
         for f in self.features:
-            out.append(F.interpolate(f(x), x_size[2:], mode='bilinear', align_corners=True))
+            out.append(F.interpolate(
+                f(x), x_size[2:], mode='bilinear', align_corners=True))
         return torch.cat(out, 1)
 
 
@@ -33,7 +34,8 @@ class PSPNet(nn.Module):
     def __init__(self, args, zoom_factor, use_ppm):
         super(PSPNet, self).__init__()
         assert 2048 % len(args.bins) == 0
-        assert args.get('num_classes_tr') is not None, 'Get the data loaders first'
+        assert args.get(
+            'num_classes_tr') is not None, 'Get the data loaders first'
         assert zoom_factor in [1, 2, 4, 8]
         self.zoom_factor = zoom_factor
         self.use_ppm = use_ppm
@@ -68,12 +70,14 @@ class PSPNet(nn.Module):
             self.ppm = PPM(fea_dim, int(fea_dim/len(args.bins)), args.bins)
             fea_dim *= 2
             self.bottleneck = nn.Sequential(
-                nn.Conv2d(fea_dim, self.bottleneck_dim, kernel_size=3, padding=1, bias=False),
+                nn.Conv2d(fea_dim, self.bottleneck_dim,
+                          kernel_size=3, padding=1, bias=False),
                 nn.BatchNorm2d(self.bottleneck_dim),
                 nn.ReLU(inplace=True),
                 nn.Dropout2d(p=args.dropout),
             )
-        self.classifier = nn.Conv2d(self.bottleneck_dim, args.num_classes_tr, kernel_size=1)
+        self.classifier = nn.Conv2d(
+            self.bottleneck_dim, args.num_classes_tr, kernel_size=1)
 
     def freeze_bn(self):
         for m in self.modules():
@@ -106,5 +110,6 @@ class PSPNet(nn.Module):
     def classify(self, features, shape):
         x = self.classifier(features)
         if self.zoom_factor != 1:
-            x = F.interpolate(x, size=shape, mode='bilinear', align_corners=True)
+            x = F.interpolate(x, size=shape, mode='bilinear',
+                              align_corners=True)
         return x

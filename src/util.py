@@ -88,7 +88,8 @@ def get_model_dir(args: argparse.Namespace, run_id=None) -> str:
 def save_model(name, savedir, epoch, model, optimizer):
     filename = os.path.join(savedir, '{}.pth'.format(name))
     print(f'Saving checkpoint to: {filename}')
-    torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict()}, filename)
+    torch.save({'epoch': epoch, 'state_dict': model.state_dict(),
+               'optimizer': optimizer.state_dict()}, filename)
 
 
 def to_one_hot(mask: torch.tensor,
@@ -105,13 +106,15 @@ def to_one_hot(mask: torch.tensor,
     device = torch.device('cuda:{}'.format(dist.get_rank()))
     one_hot_mask = torch.zeros(n_tasks, shot, num_classes, h, w, device=device)
     new_mask = mask.unsqueeze(2).clone()
-    new_mask[torch.where(new_mask == 255)] = 0  # Ignore_pixels are anyway filtered out in the losses
+    # Ignore_pixels are anyway filtered out in the losses
+    new_mask[torch.where(new_mask == 255)] = 0
     one_hot_mask.scatter_(2, new_mask, 1).long()
     return one_hot_mask
 
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
@@ -167,7 +170,8 @@ def fast_intersection_and_union(probas: torch.Tensor,
 
     # Pixels with target == 255 will be set to 0 in to_one_hot, we should ignore them
     valid_pixels = target.unsqueeze(2) != 255
-    target, preds = to_one_hot(target, num_classes), to_one_hot(preds, num_classes)  # [n_task, shot, num_classes, H, W]
+    target, preds = to_one_hot(target, num_classes), to_one_hot(
+        preds, num_classes)  # [n_task, shot, num_classes, H, W]
 
     area_intersection = (preds * target * valid_pixels).sum(dim=(3, 4))
     area_output = (preds * valid_pixels).sum(dim=(3, 4))
@@ -198,9 +202,12 @@ def intersection_and_union(preds: torch.tensor, target: torch.tensor, num_classe
 
     # This excludes ignore pixels (255) from the result, because of the max
     # Adding .float() because histc not working with long() on CPU
-    area_intersection = torch.histc(intersection.float(), bins=num_classes, min=0, max=num_classes-1)
-    area_output = torch.histc(preds.float(), bins=num_classes, min=0, max=num_classes-1)
-    area_target = torch.histc(target.float(), bins=num_classes, min=0, max=num_classes-1)
+    area_intersection = torch.histc(
+        intersection.float(), bins=num_classes, min=0, max=num_classes-1)
+    area_output = torch.histc(
+        preds.float(), bins=num_classes, min=0, max=num_classes-1)
+    area_target = torch.histc(
+        target.float(), bins=num_classes, min=0, max=num_classes-1)
     area_union = area_output + area_target - area_intersection
     return area_intersection, area_union, area_target
 
@@ -208,13 +215,16 @@ def intersection_and_union(preds: torch.tensor, target: torch.tensor, num_classe
 def compute_wce(one_hot_gt, n_novel):
     n_novel_times_shot, n_classes = one_hot_gt.size()[1:3]
     shot = n_novel_times_shot // n_novel
-    wce = torch.ones((1, n_novel_times_shot, n_classes, 1, 1), device=one_hot_gt.device)
-    wce[:, :, 0, :, :] = 0.01 if shot == 1 else 0.15  # Increase relative coef of novel classes if labeled samples are scarce
+    wce = torch.ones((1, n_novel_times_shot, n_classes, 1, 1),
+                     device=one_hot_gt.device)
+    # Increase relative coef of novel classes if labeled samples are scarce
+    wce[:, :, 0, :, :] = 0.01 if shot == 1 else 0.15
     return wce
 
 
 def get_cfg(parser):
-    parser.add_argument('--config', type=str, required=True, help='config file')
+    parser.add_argument('--config', type=str,
+                        required=True, help='config file')
     parser.add_argument('--opts', default=None, nargs=argparse.REMAINDER)
     args = parser.parse_args()
     assert args.config is not None

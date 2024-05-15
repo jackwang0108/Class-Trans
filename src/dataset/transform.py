@@ -33,7 +33,8 @@ class ToTensor(object):
             raise (RuntimeError("segtransform.ToTensor() only handle np.ndarray"
                                 "[eg: data readed by cv2.imread()].\n"))
         if len(image.shape) > 3 or len(image.shape) < 2:
-            raise (RuntimeError("segtransform.ToTensor() only handle np.ndarray with 3 dims or 2 dims.\n"))
+            raise (RuntimeError(
+                "segtransform.ToTensor() only handle np.ndarray with 3 dims or 2 dims.\n"))
         if len(image.shape) == 2:
             image = np.expand_dims(image, axis=2)
 
@@ -45,7 +46,8 @@ class ToTensor(object):
                 raise (RuntimeError("segtransform.ToTensor() only handle np.ndarray"
                                     "[eg: data readed by cv2.imread()].\n"))
             if not len(label.shape) == 2:
-                raise (RuntimeError("segtransform.ToTensor() only handle np.ndarray labellabel with 2 dims.\n"))
+                raise (RuntimeError(
+                    "segtransform.ToTensor() only handle np.ndarray labellabel with 2 dims.\n"))
             label = torch.from_numpy(label)
             if not isinstance(label, torch.LongTensor):
                 label = label.long()
@@ -125,7 +127,8 @@ class Resize(object):
         # Step 3: Do the same for the label (the padding is 255)
         if label is not None:
             s_mask = label
-            new_h, new_w = find_new_hw(s_mask.shape[0], s_mask.shape[1], test_size)
+            new_h, new_w = find_new_hw(
+                s_mask.shape[0], s_mask.shape[1], test_size)
             s_mask = cv2.resize(s_mask.astype(np.float32), dsize=(int(new_w), int(new_h)),
                                 interpolation=cv2.INTER_NEAREST)
             back_crop_s_mask = np.ones((test_size, test_size)) * 255
@@ -156,13 +159,16 @@ class RandScale(object):
                 and 0 < aspect_ratio[0] < aspect_ratio[1]:
             self.aspect_ratio = aspect_ratio
         else:
-            raise (RuntimeError("segtransform.RandScale() aspect_ratio param error.\n"))
+            raise (RuntimeError(
+                "segtransform.RandScale() aspect_ratio param error.\n"))
 
     def __call__(self, image, label):
-        temp_scale = self.scale[0] + (self.scale[1] - self.scale[0]) * random.random()
+        temp_scale = self.scale[0] + \
+            (self.scale[1] - self.scale[0]) * random.random()
         temp_aspect_ratio = 1.0
         if self.aspect_ratio is not None:
-            temp_aspect_ratio = self.aspect_ratio[0] + (self.aspect_ratio[1] - self.aspect_ratio[0]) * random.random()
+            temp_aspect_ratio = self.aspect_ratio[0] + (
+                self.aspect_ratio[1] - self.aspect_ratio[0]) * random.random()
             temp_aspect_ratio = math.sqrt(temp_aspect_ratio)
         scale_factor_x = temp_scale * temp_aspect_ratio
         scale_factor_y = temp_scale / temp_aspect_ratio
@@ -179,6 +185,7 @@ class Crop(object):
         size (sequence or int): Desired output size of the crop. If size is an
         int instead of sequence like (h, w), a square crop (size, size) is made.
     """
+
     def __init__(self, size, crop_type='center', padding=None, ignore_label=255):
         if isinstance(size, int):
             self.crop_h = size
@@ -218,7 +225,8 @@ class Crop(object):
         pad_w_half = int(pad_w / 2)
         if pad_h > 0 or pad_w > 0:
             if self.padding is None:
-                raise (RuntimeError("segtransform.Crop() need padding while padding argument is None\n"))
+                raise (RuntimeError(
+                    "segtransform.Crop() need padding while padding argument is None\n"))
             image = cv2.copyMakeBorder(image, pad_h_half, pad_h - pad_h_half, pad_w_half,
                                        pad_w - pad_w_half, cv2.BORDER_CONSTANT, value=self.padding)
             # image = np.zeros(3,)
@@ -261,7 +269,8 @@ class RandRotate(object):
 
     def __call__(self, image, label):
         if random.random() < self.p:
-            angle = self.rotate[0] + (self.rotate[1] - self.rotate[0]) * random.random()
+            angle = self.rotate[0] + \
+                (self.rotate[1] - self.rotate[0]) * random.random()
             h, w = label.shape
             matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1)
             image = cv2.warpAffine(image, matrix, (w, h), flags=cv2.INTER_LINEAR,

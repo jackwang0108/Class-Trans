@@ -81,7 +81,8 @@ def process_image(line: str,
     label_name = os.path.join(data_root, line_split[1])
     item: Tuple[str, str] = (image_name, label_name)
     label = cv2.imread(label_name, cv2.IMREAD_GRAYSCALE)
-    label_class = np.unique(label).tolist()
+    # Pascal和COCO原始的segmentation mask
+    label_class: list[int] = np.unique(label).tolist()
 
     if 0 in label_class:
         label_class.remove(0)

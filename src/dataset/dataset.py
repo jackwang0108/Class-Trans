@@ -6,22 +6,24 @@ from typing import List
 import cv2
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 import src.dataset.transform as transform
 from .classes import get_split_classes
 from .utils import make_dataset
 
+from src.util import CfgNode
 
-def get_val_loader(args: argparse.Namespace) -> torch.utils.data.DataLoader:
+
+def get_val_loader(args: CfgNode) -> DataLoader:
     """
         Build the validation loader.
     """
     assert args.split in [0, 1, 2, 3, 10, 11, -1]
     val_transform = transform.Compose([
-            transform.Resize(args.image_size),
-            transform.ToTensor(),
-            transform.Normalize(mean=args.mean, std=args.std)])
+        transform.Resize(args.image_size),
+        transform.ToTensor(),
+        transform.Normalize(mean=args.mean, std=args.std)])
     split_classes = get_split_classes(args)
 
     # ===================== Get base and novel classes =====================
@@ -40,13 +42,13 @@ def get_val_loader(args: argparse.Namespace) -> torch.utils.data.DataLoader:
                                  data_list_path_train=args.train_list,
                                  data_list_path_test=args.val_list,
                                  args=args)
-    val_loader = torch.utils.data.DataLoader(val_data,
-                                             batch_size=args.batch_size_val,
-                                             drop_last=False,
-                                             shuffle=args.shuffle_test_data,
-                                             num_workers=args.workers,
-                                             pin_memory=args.pin_memory,
-                                             sampler=val_sampler)
+    val_loader = DataLoader(val_data,
+                            batch_size=args.batch_size_val,
+                            drop_last=False,
+                            shuffle=args.shuffle_test_data,
+                            num_workers=args.workers,
+                            pin_memory=args.pin_memory,
+                            sampler=val_sampler)
     return val_loader
 
 
@@ -56,7 +58,8 @@ def get_image_and_label(image_path, label_path):
     image = np.float32(image)
     label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
     if image.shape[0] != label.shape[0] or image.shape[1] != label.shape[1]:
-        raise (RuntimeError("Image & label shape mismatch: " + image_path + " " + label_path + "\n"))
+        raise (RuntimeError("Image & label shape mismatch: " +
+               image_path + " " + label_path + "\n"))
     return image, label
 
 
@@ -67,14 +70,16 @@ def adjust_label(base_class_list, novel_class_list, label, chosen_novel_class,  
     for lab in base_class_list:
         indexes = np.where(label == lab)
         if base_label == -1:
-            new_label[indexes[0], indexes[1]] = base_class_list.index(lab) + 1  # Add 1 because class 0 is bg
+            new_label[indexes[0], indexes[1]] = base_class_list.index(
+                lab) + 1  # Add 1 because class 0 is bg
         else:
             new_label[indexes[0], indexes[1]] = base_label
 
     for lab in novel_class_list:
         indexes = np.where(label == lab)
         if other_novels_label == -1:
-            new_label[indexes[0], indexes[1]] = 1 + len(base_class_list) + novel_class_list.index(lab)
+            new_label[indexes[0], indexes[1]] = 1 + \
+                len(base_class_list) + novel_class_list.index(lab)
         elif lab == chosen_novel_class:
             new_label[indexes[0], indexes[1]] = 1 + len(base_class_list)
         else:
@@ -107,7 +112,8 @@ class ClassicValData(Dataset):
         self.support_data_list, self.support_sub_class_file_list = make_dataset(args.data_root, support_data_list_path,
                                                                                 self.novel_class_list,
                                                                                 keep_small_area_classes=False)
-        print('Total number of kept images (support):', len(self.support_data_list))
+        print('Total number of kept images (support):',
+              len(self.support_data_list))
 
     @property
     def num_novel_classes(self):
@@ -134,14 +140,16 @@ class ClassicValData(Dataset):
         # == From classes in the query image, choose one randomly ===
         label_class = set(np.unique(label))
         label_class -= {0, 255}
-        novel_classes_in_image = list(label_class.intersection(set(self.novel_class_list)))
+        novel_classes_in_image = list(
+            label_class.intersection(set(self.novel_class_list)))
         if len(novel_classes_in_image) > 0:
             class_chosen = np.random.choice(novel_classes_in_image)
         else:
             class_chosen = np.random.choice(self.novel_class_list)
 
         q_valid_pixels = (label != 255).float()
-        target = self._adjust_label(label, class_chosen, base_label=-1, other_novels_label=0)
+        target = self._adjust_label(
+            label, class_chosen, base_label=-1, other_novels_label=0)
 
         support_image_list = []
         support_label_list = []
@@ -168,16 +176,20 @@ class ClassicValData(Dataset):
 
         # == Second, read support images and masks  ============
         for k in range(self.shot):
-            support_image_path, support_label_path = support_image_path_list[k], support_label_path_list[k]
-            support_image, support_label = get_image_and_label(support_image_path, support_label_path)
-            support_label = self._adjust_label(support_label, class_chosen, base_label=0, other_novels_label=0)
+            support_image_path, support_label_path = support_image_path_list[
+                k], support_label_path_list[k]
+            support_image, support_label = get_image_and_label(
+                support_image_path, support_label_path)
+            support_label = self._adjust_label(
+                support_label, class_chosen, base_label=0, other_novels_label=0)
             support_image_list.append(support_image)
             support_label_list.append(support_label)
 
         # == Forward images through transforms =================
         if self.transform is not None:
             for k in range(len(support_image_list)):
-                support_image_list[k], support_label_list[k] = self.transform(support_image_list[k], support_label_list[k])
+                support_image_list[k], support_label_list[k] = self.transform(
+                    support_image_list[k], support_label_list[k])
                 support_image_list[k] = support_image_list[k].unsqueeze(0)
                 support_label_list[k] = support_label_list[k].unsqueeze(0)
 
@@ -189,8 +201,20 @@ class ClassicValData(Dataset):
 
 
 class MultiClassValData(Dataset):
-    def __init__(self, transform: transform.Compose, base_class_list: List[int], novel_class_list: List[int],
-                 data_list_path_train: str, data_list_path_test: str, args: argparse.Namespace):
+    def __init__(
+        self,
+        # 数据增强
+        transform: transform.Compose,
+        # 基类列表
+        base_class_list: List[int],
+        # 新类列表
+        novel_class_list: List[int],
+        # 训练图像列表文件路径, 就是./lists/coco/train.txt
+        data_list_path_train: str,
+        # 训练图像列表文件路径, 就是./lists/coco/test.txt
+        data_list_path_test: str,
+        args: CfgNode
+    ):
         self.support_only_one_novel = args.support_only_one_novel
         self.use_training_images_for_supports = args.use_training_images_for_supports
         assert not self.use_training_images_for_supports or data_list_path_train
@@ -229,7 +253,8 @@ class MultiClassValData(Dataset):
     def __getitem__(self, index):  # It only gives the query
         image_path, label_path = self.query_data_list[index]
         qry_img, label = get_image_and_label(image_path, label_path)
-        label = self._adjust_label(label, -1, base_label=-1, other_novels_label=-1)
+        label = self._adjust_label(
+            label, -1, base_label=-1, other_novels_label=-1)
         if self.transform is not None:
             qry_img, label = self.transform(qry_img, label)
         valid_pixels = (label != 255).float()
@@ -252,10 +277,13 @@ class MultiClassValData(Dataset):
                     continue
                 image, label = get_image_and_label(image_path, label_path)
                 if self.support_only_one_novel:  # Ignore images that have multiple novel classes
-                    present_novel_classes = set(np.unique(label)) - {0, 255} - set(self.base_class_list)
+                    present_novel_classes = set(
+                        np.unique(label)) - {0, 255} - set(self.base_class_list)
                     if len(present_novel_classes) > 1:
                         continue
-                label = self._adjust_label(label, -1, base_label=0, other_novels_label=-1)  # If support_only_one_novel is True, images with more than one novel classes won't reach this line. So, -1 won't make the image contain two different novel classes.
+                # If support_only_one_novel is True, images with more than one novel classes won't reach this line. So, -1 won't make the image contain two different novel classes.
+                label = self._adjust_label(
+                    label, -1, base_label=0, other_novels_label=-1)
 
                 image_list.append(image)
                 label_list.append(label)
@@ -265,7 +293,8 @@ class MultiClassValData(Dataset):
             found_images_count = len(current_path_list)
             assert found_images_count > 0, f'No support candidate for class {c} out of {num_file} images'
             if found_images_count < self.shot:
-                indices_to_repeat = random.choices(range(found_images_count), k=self.shot-found_images_count)
+                indices_to_repeat = random.choices(
+                    range(found_images_count), k=self.shot-found_images_count)
                 image_list.extend([image_list[i] for i in indices_to_repeat])
                 label_list.extend([label_list[i] for i in indices_to_repeat])
 
